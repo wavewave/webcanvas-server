@@ -34,7 +34,7 @@ Library
                  webcanvas-type == 0.0.*, 
                  safecopy == 0.6.*, 
                  acid-state == 0.6.*, 
-                 aeson == 0.4.*, 
+                 aeson == 0.5.*, 
                  bytestring == 0.9.*, 
                  enumerator == 0.4.*, 
                  uuid == 1.2.*,
