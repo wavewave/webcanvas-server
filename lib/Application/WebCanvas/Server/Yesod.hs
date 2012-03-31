@@ -10,26 +10,29 @@ import Yesod hiding (update)
 import Network.Wai
 import qualified Data.Enumerator.List as EL
 import qualified Data.ByteString as S
+import qualified Data.ByteString.Char8 as SC 
 import Application.WebCanvas.Type
 import Data.Acid
 import Data.Attoparsec as P
 import Data.Aeson as A
 import Data.UUID
 import Application.WebCanvas.Server.Type
+import System.IO
+import Network.HTTP.Types (urlDecode)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 mkYesod "WebcanvasServer" [parseRoutes|
 / HomeR GET
 /listwebcanvas  ListWebcanvasR GET
 /uploadwebcanvas  UploadWebcanvasR POST
+/recent RecentR GET
 /webcanvas/#UUID WebcanvasR 
 |]
 
 instance Yesod WebcanvasServer where
   approot _ = ""
   maximumContentLength _ _ = 100000000
-
-{-instance RenderMessage WebcanvasServer FormMessage where
-  renderMessage _ _ = defaultFormMessage -}
 
 
 getHomeR :: Handler RepHtml 
@@ -58,13 +61,35 @@ getListWebcanvasR = do
   defaultLayoutJson defhlet (A.toJSON (Just r))
 
 
+recentPNG :: T.Text -> GGWidget m Handler () 
+recentPNG content = [whamlet| 
+  <img src="#{content}">
+|]
+
+getRecentR :: Handler RepHtml 
+getRecentR = do
+  content <- liftIO $ S.readFile "recent.png.base64"
+  defaultLayout (recentPNG (T.decodeUtf8 content))
+
 postUploadWebcanvasR :: Handler RepHtmlJson
 postUploadWebcanvasR = do 
+  setHeader "Access-Control-Allow-Origin" "*"
+  setHeader "Access-Control-Allow-Methods" "POST, GET"
+  setHeader "X-Requested-With" "XmlHttpRequest"
+  setHeader "Access-Control-Allow-Headers" "X-Requested-With, Content-Type"
+
   liftIO $ putStrLn "postQueueR called" 
   acid <- return.server_acid =<< getYesod
   _ <- getRequest
   bs' <- lift EL.consume
-  let bs = S.concat bs' 
+  let bs = S.concat bs'
+      decoded' = urlDecode True bs
+      decoded = SC.drop 4 decoded'   
+  liftIO $ withFile "recent.png.base64" WriteMode $ 
+    \h -> S.hPutStrLn h decoded
+  liftIO $ putStrLn "------------------"
+  liftIO $ S.putStrLn decoded
+  liftIO $ putStrLn "------------------"
   let parsed = parse json bs 
   case parsed of 
     Done _ parsedjson -> do 
