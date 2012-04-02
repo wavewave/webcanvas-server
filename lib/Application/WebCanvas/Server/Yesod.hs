@@ -25,7 +25,8 @@ import qualified Data.Text.Encoding as T
 import Data.Time.Clock
 import System.FilePath 
 import Control.Concurrent
-
+import Data.Function (on)
+import Data.List (sortBy)
 
 mkYesod "WebCanvasServer" [parseRoutes|
 / HomeR GET
@@ -59,11 +60,17 @@ defhlet = [whamlet| <h1> HTML output not supported |]
 
 getListWebCanvasR :: Handler RepHtmlJson
 getListWebCanvasR = do 
-  liftIO $ putStrLn "getQueueListR called" 
+  setHeader "Access-Control-Allow-Origin" "*"
+  setHeader "Access-Control-Allow-Methods" "POST, GET"
+  setHeader "X-Requested-With" "XmlHttpRequest"
+  setHeader "Access-Control-Allow-Headers" "X-Requested-With, Content-Type"
+
+  liftIO $ putStrLn "getListWebCanvasR called" 
   acid <- return.server_acid =<< getYesod
   r <- liftIO $ query acid QueryAll
-  liftIO $ putStrLn $ show r 
-  defaultLayoutJson defhlet (A.toJSON (Just r))
+  let nr = reverse (sortBy (compare `on` webcanvas_creationtime) r )
+  liftIO $ putStrLn $ show nr 
+  defaultLayoutJson defhlet (A.toJSON (Just nr))
 
 
 recentPNG :: T.Text -> GGWidget m Handler () 
@@ -116,7 +123,7 @@ postUploadWebCanvasR = do
       decoded' = urlDecode True bs
       decoded = SC.drop 4 decoded'   
   liftIO $ withFile (cvsItemFileName ncvsitem) WriteMode $  -- "recent.png.base64" WriteMode $ 
-    \h -> S.hPutStrLn h decoded
+    \h -> S.hPutStr h decoded
 
   minfo <- liftIO $ update acid (AddWebCanvasItem ncvsitem)
 
@@ -162,9 +169,15 @@ getWebCanvasR idee = do
   liftIO $ putStrLn "getWebCanvasR called"
   acid <- return.server_acid =<< getYesod
   r <- liftIO $ query acid (QueryWebCanvasItem idee)
-  liftIO $ putStrLn $ show r 
-  let hlet = [whamlet| <h1> File #{idee}|]
-  defaultLayoutJson hlet (A.toJSON (Just r))
+  liftIO $ putStrLn $ show r
+  case r of 
+    Nothing -> defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe T.Text))
+    Just item -> do 
+      content <- liftIO $ S.readFile (cvsItemFileName item)
+      defaultLayoutJson defhlet (A.toJSON (Just (T.decodeUtf8 content) :: Maybe T.Text))
+
+-- let hlet = [whamlet| <h1> File #{idee}|]
+-- defaultLayoutJson hlet (A.toJSON (Just r))
 
 
 putWebCanvasR :: UUID -> Handler RepHtmlJson
