@@ -45,7 +45,11 @@ Library
                  yesod-core == 0.9.*, 
                  yesod-form == 0.3.*, 
                  blaze-html == 0.4.*, 
-                 http-types == 0.6.*
+                 http-types == 0.6.*, 
+                 uuid, 
+                 old-locale == 1.0.*, 
+                 time == 1.2.*, 
+                 filepath 
   Exposed-Modules: 
                    Application.WebCanvas.Server.Type
                    Application.WebCanvas.Server.Yesod

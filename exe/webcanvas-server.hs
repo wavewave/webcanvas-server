@@ -12,4 +12,5 @@ main :: IO ()
 main = do 
   putStrLn "webcanvas-server"
   acid <- openLocalState M.empty 
-  warpDebug 7500 (WebcanvasServer acid)
+  warpDebug 7500 (WebCanvasServer acid)
+

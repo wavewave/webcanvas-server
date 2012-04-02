@@ -16,21 +16,26 @@ import Data.Acid
 import Data.Attoparsec as P
 import Data.Aeson as A
 import Data.UUID
+import Data.UUID.V5
 import Application.WebCanvas.Server.Type
 import System.IO
 import Network.HTTP.Types (urlDecode)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Time.Clock
+import System.FilePath 
+import Control.Concurrent
 
-mkYesod "WebcanvasServer" [parseRoutes|
+
+mkYesod "WebCanvasServer" [parseRoutes|
 / HomeR GET
-/listwebcanvas  ListWebcanvasR GET
-/uploadwebcanvas  UploadWebcanvasR POST
+/listwebcanvas  ListWebCanvasR GET
+/uploadwebcanvas  UploadWebCanvasR POST
 /recent RecentR GET
-/webcanvas/#UUID WebcanvasR 
+/webcanvas/#UUID WebCanvasR 
 |]
 
-instance Yesod WebcanvasServer where
+instance Yesod WebCanvasServer where
   approot _ = ""
   maximumContentLength _ _ = 100000000
 
@@ -52,8 +57,8 @@ defhlet :: GGWidget m Handler ()
 defhlet = [whamlet| <h1> HTML output not supported |]
 
 
-getListWebcanvasR :: Handler RepHtmlJson
-getListWebcanvasR = do 
+getListWebCanvasR :: Handler RepHtmlJson
+getListWebCanvasR = do 
   liftIO $ putStrLn "getQueueListR called" 
   acid <- return.server_acid =<< getYesod
   r <- liftIO $ query acid QueryAll
@@ -71,12 +76,37 @@ getRecentR = do
   content <- liftIO $ S.readFile "recent.png.base64"
   defaultLayout (recentPNG (T.decodeUtf8 content))
 
-postUploadWebcanvasR :: Handler RepHtmlJson
-postUploadWebcanvasR = do 
-  setHeader "Access-Control-Allow-Origin" "*"
+-- | 
+
+nextUUID :: UTCTime -> IO UUID
+nextUUID ctime = return . generateNamed namespaceURL . S.unpack . SC.pack $ show ctime 
+
+-- | 
+
+cvsItemFileName :: WebCanvasItem -> FilePath 
+cvsItemFileName (WebCanvasItem uuid _) = "data" </> show uuid ++ ".png" ++ ".base64"
+
+-- | 
+
+postUploadWebCanvasR :: Handler RepHtmlJson
+postUploadWebCanvasR = do 
+  setHeader "Access-Control-Allow-Origin" "ianwookim.org"
   setHeader "Access-Control-Allow-Methods" "POST, GET"
   setHeader "X-Requested-With" "XmlHttpRequest"
   setHeader "Access-Control-Allow-Headers" "X-Requested-With, Content-Type"
+
+  -- let mutctime = T.parseTime defaultTimeLocale "%F" (unpack timetxt)
+  ctime <- liftIO $ getCurrentTime
+  uuid <- liftIO (nextUUID ctime)
+  let ncvsitem = WebCanvasItem uuid ctime
+
+  -- let utctime = maybe (error "error") id mutctime
+ 
+  liftIO $ putStrLn "" 
+  liftIO $ putStrLn $ show ctime
+  liftIO $ putStrLn $ show uuid 
+
+  -- liftIO $ putStrLn $ show utctime 
 
   liftIO $ putStrLn "postQueueR called" 
   acid <- return.server_acid =<< getYesod
@@ -85,54 +115,61 @@ postUploadWebcanvasR = do
   let bs = S.concat bs'
       decoded' = urlDecode True bs
       decoded = SC.drop 4 decoded'   
-  liftIO $ withFile "recent.png.base64" WriteMode $ 
+  liftIO $ withFile (cvsItemFileName ncvsitem) WriteMode $  -- "recent.png.base64" WriteMode $ 
     \h -> S.hPutStrLn h decoded
-  liftIO $ putStrLn "------------------"
-  liftIO $ S.putStrLn decoded
-  liftIO $ putStrLn "------------------"
-  let parsed = parse json bs 
+
+  minfo <- liftIO $ update acid (AddWebCanvasItem ncvsitem)
+
+  defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
+
+  -- liftIO $ putStrLn "------------------"
+  -- liftIO $ S.putStrLn decoded
+  -- liftIO $ putStrLn "------------------"
+
+
+{-  let parsed = parse json bs 
   case parsed of 
     Done _ parsedjson -> do 
-      case (A.fromJSON parsedjson :: A.Result WebcanvasInfo) of 
+      case (A.fromJSON parsedjson :: A.Result WebCanvasItem) of 
         Success minfo -> do 
-          r <- liftIO $ update acid (AddWebcanvas minfo)
+          r <- liftIO $ update acid (AddWebCanvasItem minfo)
           liftIO $ print (Just r)
           liftIO $ print (A.toJSON (Just r))
           defaultLayoutJson defhlet (A.toJSON (Just r))
         Error err -> do 
           liftIO $ putStrLn err 
-          defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebcanvasInfo))
+          defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
     Fail _ ctxts err -> do 
       liftIO $ putStrLn (concat ctxts++err)
-      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebcanvasInfo))
+      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
     Partial _ -> do 
       liftIO $ putStrLn "partial" 
-      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebcanvasInfo))
+      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem)) -}
 
 
 
-handleWebcanvasR :: UUID -> Handler RepHtmlJson
-handleWebcanvasR name = do
+handleWebCanvasR :: UUID -> Handler RepHtmlJson
+handleWebCanvasR name = do
   wr <- return.reqWaiRequest =<< getRequest
   case requestMethod wr of 
-    "GET" -> getWebcanvasR name
-    "PUT" -> putWebcanvasR name
-    "DELETE" -> deleteWebcanvasR name
-    x -> error ("No such action " ++ show x ++ " in handlerWebcanvasR")
+    "GET" -> getWebCanvasR name
+    "PUT" -> putWebCanvasR name
+    "DELETE" -> deleteWebCanvasR name
+    x -> error ("No such action " ++ show x ++ " in handlerWebCanvasR")
 
-getWebcanvasR :: UUID -> Handler RepHtmlJson
-getWebcanvasR idee = do 
-  liftIO $ putStrLn "getWebcanvasR called"
+getWebCanvasR :: UUID -> Handler RepHtmlJson
+getWebCanvasR idee = do 
+  liftIO $ putStrLn "getWebCanvasR called"
   acid <- return.server_acid =<< getYesod
-  r <- liftIO $ query acid (QueryWebcanvas idee)
+  r <- liftIO $ query acid (QueryWebCanvasItem idee)
   liftIO $ putStrLn $ show r 
   let hlet = [whamlet| <h1> File #{idee}|]
   defaultLayoutJson hlet (A.toJSON (Just r))
 
 
-putWebcanvasR :: UUID -> Handler RepHtmlJson
-putWebcanvasR idee = do 
-  liftIO $ putStrLn "putWebcanvasR called"
+putWebCanvasR :: UUID -> Handler RepHtmlJson
+putWebCanvasR idee = do 
+  liftIO $ putStrLn "putWebCanvasR called"
   acid <- return.server_acid =<< getYesod
   _wr <- return.reqWaiRequest =<< getRequest
   bs' <- lift EL.consume
@@ -141,27 +178,27 @@ putWebcanvasR idee = do
   liftIO $ print parsed 
   case parsed of 
     Done _ parsedjson -> do 
-      case (A.fromJSON parsedjson :: A.Result WebcanvasInfo) of 
+      case (A.fromJSON parsedjson :: A.Result WebCanvasItem) of 
         Success minfo -> do 
           if idee == webcanvas_uuid minfo
-            then do r <- liftIO $ update acid (UpdateWebcanvas minfo)
+            then do r <- liftIO $ update acid (UpdateWebCanvasItem minfo)
                     defaultLayoutJson defhlet (A.toJSON (Just r))
             else do liftIO $ putStrLn "webcanvasname mismatched"
-                    defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebcanvasInfo))
+                    defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
         Error err -> do 
           liftIO $ putStrLn err 
-          defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebcanvasInfo))
+          defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
     Fail _ ctxts err -> do 
       liftIO $ putStrLn (concat ctxts++err)
-      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebcanvasInfo))
+      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
          
     Partial _ -> do 
       liftIO $ putStrLn "partial" 
-      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebcanvasInfo))
+      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
 
-deleteWebcanvasR :: UUID -> Handler RepHtmlJson
-deleteWebcanvasR idee = do 
+deleteWebCanvasR :: UUID -> Handler RepHtmlJson
+deleteWebCanvasR idee = do 
   acid <- return.server_acid =<< getYesod
-  r <- liftIO $ update acid (DeleteWebcanvas idee)
+  r <- liftIO $ update acid (DeleteWebCanvasItem idee)
   liftIO $ putStrLn $ show r 
   defaultLayoutJson defhlet (A.toJSON (Just r))
