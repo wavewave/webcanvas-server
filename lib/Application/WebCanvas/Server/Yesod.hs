@@ -129,34 +129,15 @@ postUploadWebCanvasR = do
 
   defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
 
-  -- liftIO $ putStrLn "------------------"
-  -- liftIO $ S.putStrLn decoded
-  -- liftIO $ putStrLn "------------------"
-
-
-{-  let parsed = parse json bs 
-  case parsed of 
-    Done _ parsedjson -> do 
-      case (A.fromJSON parsedjson :: A.Result WebCanvasItem) of 
-        Success minfo -> do 
-          r <- liftIO $ update acid (AddWebCanvasItem minfo)
-          liftIO $ print (Just r)
-          liftIO $ print (A.toJSON (Just r))
-          defaultLayoutJson defhlet (A.toJSON (Just r))
-        Error err -> do 
-          liftIO $ putStrLn err 
-          defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
-    Fail _ ctxts err -> do 
-      liftIO $ putStrLn (concat ctxts++err)
-      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
-    Partial _ -> do 
-      liftIO $ putStrLn "partial" 
-      defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem)) -}
-
-
+-- | 
 
 handleWebCanvasR :: UUID -> Handler RepHtmlJson
 handleWebCanvasR name = do
+  setHeader "Access-Control-Allow-Origin" "*"
+  setHeader "Access-Control-Allow-Methods" "POST, GET"
+  setHeader "X-Requested-With" "XmlHttpRequest"
+  setHeader "Access-Control-Allow-Headers" "X-Requested-With, Content-Type"
+
   wr <- return.reqWaiRequest =<< getRequest
   case requestMethod wr of 
     "GET" -> getWebCanvasR name
