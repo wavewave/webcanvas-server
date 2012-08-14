@@ -110,7 +110,7 @@ cvsItemFileName (WebCanvasItem uuid _) = "data" </> show uuid ++ ".png" ++ ".bas
 
 postUploadWebCanvasR :: Handler RepHtmlJson
 postUploadWebCanvasR = do 
-  setHeader "Access-Control-Allow-Origin" "ianwookim.org"
+  setHeader "Access-Control-Allow-Origin" "*"
   setHeader "Access-Control-Allow-Methods" "POST, GET"
   setHeader "X-Requested-With" "XmlHttpRequest"
   setHeader "Access-Control-Allow-Headers" "X-Requested-With, Content-Type"
