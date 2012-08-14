@@ -1,32 +1,42 @@
-{-# LANGUAGE TemplateHaskell, QuasiQuotes, DeriveDataTypeable, 
-             MultiParamTypeClasses, TypeFamilies, FlexibleContexts,  
-             FlexibleInstances, OverloadedStrings #-}
-{-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable, 
+             EmptyDataDecls, 
+             FlexibleContexts,  
+             FlexibleInstances,
+             MultiParamTypeClasses, 
+             OverloadedStrings, 
+             QuasiQuotes, 
+             ScopedTypeVariables, 
+             TemplateHaskell, 
+             TypeFamilies #-}
 
 module Application.WebCanvas.Server.Yesod where 
 
-import Yesod hiding (update)
-import Network.Wai
-import qualified Data.Enumerator.List as EL
+--
+import           Control.Monad
+import           Data.Acid
+import           Data.Attoparsec as P
+import           Data.Aeson as A
+import           Data.Conduit 
+import qualified Data.Conduit.List as CL
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as SC 
-import Application.WebCanvas.Type
-import Data.Acid
-import Data.Attoparsec as P
-import Data.Aeson as A
-import Data.UUID
-import Data.UUID.V5
-import Application.WebCanvas.Server.Type
-import System.IO
-import Network.HTTP.Types (urlDecode)
+import           Data.Function (on)
+import           Data.List (sortBy)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Time.Clock
-import System.FilePath 
-import Control.Concurrent
-import Data.Function (on)
-import Data.List (sortBy)
+import           Data.Time.Clock
+import           Data.UUID
+import           Data.UUID.V5
+import           Network.HTTP.Types (urlDecode)
+import           Network.Wai
+import           System.FilePath 
+import           System.IO
+import           Yesod hiding (update)
+--
+import Application.WebCanvas.Type
+--
+import Application.WebCanvas.Server.Type
+--
 
 mkYesod "WebCanvasServer" [parseRoutes|
 / HomeR GET
@@ -37,7 +47,7 @@ mkYesod "WebCanvasServer" [parseRoutes|
 |]
 
 instance Yesod WebCanvasServer where
-  approot _ = ""
+  -- approot _ = ""
   maximumContentLength _ _ = 100000000
 
 
@@ -45,6 +55,7 @@ getHomeR :: Handler RepHtml
 getHomeR = do 
   liftIO $ putStrLn "getHomeR called"
   defaultLayout [whamlet|
+$newline always
 !!!
 <html>
   <head> 
@@ -54,8 +65,10 @@ getHomeR = do
 |]
 
 
-defhlet :: GGWidget m Handler ()
-defhlet = [whamlet| <h1> HTML output not supported |]
+defhlet :: GWidget s m ()
+defhlet = [whamlet| 
+  <h1> HTML output not supported 
+|]
 
 
 getListWebCanvasR :: Handler RepHtmlJson
@@ -73,7 +86,7 @@ getListWebCanvasR = do
   defaultLayoutJson defhlet (A.toJSON (Just nr))
 
 
-recentPNG :: T.Text -> GGWidget m Handler () 
+recentPNG :: T.Text -> GWidget s m () 
 recentPNG content = [whamlet| 
   <img src="#{content}">
 |]
@@ -102,27 +115,21 @@ postUploadWebCanvasR = do
   setHeader "X-Requested-With" "XmlHttpRequest"
   setHeader "Access-Control-Allow-Headers" "X-Requested-With, Content-Type"
 
-  -- let mutctime = T.parseTime defaultTimeLocale "%F" (unpack timetxt)
   ctime <- liftIO $ getCurrentTime
   uuid <- liftIO (nextUUID ctime)
   let ncvsitem = WebCanvasItem uuid ctime
-
-  -- let utctime = maybe (error "error") id mutctime
  
   liftIO $ putStrLn "" 
   liftIO $ putStrLn $ show ctime
   liftIO $ putStrLn $ show uuid 
-
-  -- liftIO $ putStrLn $ show utctime 
-
   liftIO $ putStrLn "postQueueR called" 
-  acid <- return.server_acid =<< getYesod
-  _ <- getRequest
-  bs' <- lift EL.consume
+  acid <- liftM server_acid getYesod
+  wr  <- liftM  reqWaiRequest getRequest
+  bs'  <- liftIO $ runResourceT (requestBody wr $$ CL.consume)
   let bs = S.concat bs'
       decoded' = urlDecode True bs
       decoded = SC.drop 4 decoded'   
-  liftIO $ withFile (cvsItemFileName ncvsitem) WriteMode $  -- "recent.png.base64" WriteMode $ 
+  liftIO $ withFile (cvsItemFileName ncvsitem) WriteMode $  
     \h -> S.hPutStr h decoded
 
   minfo <- liftIO $ update acid (AddWebCanvasItem ncvsitem)
@@ -130,7 +137,6 @@ postUploadWebCanvasR = do
   defaultLayoutJson defhlet (A.toJSON (Nothing :: Maybe WebCanvasItem))
 
 -- | 
-
 handleWebCanvasR :: UUID -> Handler RepHtmlJson
 handleWebCanvasR name = do
   setHeader "Access-Control-Allow-Origin" "*"
@@ -138,17 +144,18 @@ handleWebCanvasR name = do
   setHeader "X-Requested-With" "XmlHttpRequest"
   setHeader "Access-Control-Allow-Headers" "X-Requested-With, Content-Type"
 
-  wr <- return.reqWaiRequest =<< getRequest
+  wr <- liftM reqWaiRequest getRequest
   case requestMethod wr of 
     "GET" -> getWebCanvasR name
     "PUT" -> putWebCanvasR name
     "DELETE" -> deleteWebCanvasR name
     x -> error ("No such action " ++ show x ++ " in handlerWebCanvasR")
 
+-- | 
 getWebCanvasR :: UUID -> Handler RepHtmlJson
 getWebCanvasR idee = do 
   liftIO $ putStrLn "getWebCanvasR called"
-  acid <- return.server_acid =<< getYesod
+  acid <- liftM server_acid getYesod
   r <- liftIO $ query acid (QueryWebCanvasItem idee)
   liftIO $ putStrLn $ show r
   case r of 
@@ -157,16 +164,14 @@ getWebCanvasR idee = do
       content <- liftIO $ S.readFile (cvsItemFileName item)
       defaultLayoutJson defhlet (A.toJSON (Just (T.decodeUtf8 content) :: Maybe T.Text))
 
--- let hlet = [whamlet| <h1> File #{idee}|]
--- defaultLayoutJson hlet (A.toJSON (Just r))
 
-
+-- | 
 putWebCanvasR :: UUID -> Handler RepHtmlJson
 putWebCanvasR idee = do 
   liftIO $ putStrLn "putWebCanvasR called"
-  acid <- return.server_acid =<< getYesod
-  _wr <- return.reqWaiRequest =<< getRequest
-  bs' <- lift EL.consume
+  acid <- liftM  server_acid getYesod
+  wr <- liftM reqWaiRequest getRequest
+  bs' <- liftIO $ runResourceT $ (requestBody wr $$ CL.consume )
   let bs = S.concat bs'
   let parsed = parse json bs 
   liftIO $ print parsed 
